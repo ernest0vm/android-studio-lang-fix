@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+#
+# as-langfix — restores the Asian .lproj language files that cleanup tools
+# (e.g. CleanMyMac's "Language Files" cleanup) delete from Android Studio,
+# which breaks JetBrains patch updates with "Absent" conflicts.
+#
+# Usage:
+#   as-langfix            # restore missing/modified language files
+#   as-langfix --check    # report status without changing anything
+#   as-langfix --app PATH # target a different app bundle
+#   as-langfix --help
+set -euo pipefail
+
+APP="/Applications/Android Studio.app"
+MODE="fix"
+
+usage() {
+  sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --check) MODE="check"; shift ;;
+    --app) APP="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+  esac
+done
+
+# Resolve the script's real location so resources are found both when run
+# from the repo (./resources) and when installed by Homebrew (../share).
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+RESOURCES=""
+for candidate in \
+  "$SCRIPT_DIR/../share/as-langfix/resources" \
+  "$SCRIPT_DIR/../resources"; do
+  if [[ -d "$candidate" ]]; then
+    RESOURCES="$(cd "$candidate" && pwd)"
+    break
+  fi
+done
+
+if [[ -z "$RESOURCES" ]]; then
+  echo "error: bundled language resources not found next to the script" >&2
+  exit 1
+fi
+
+TARGET="$APP/Contents/Resources"
+if [[ ! -d "$TARGET" ]]; then
+  echo "error: $TARGET not found — is the app installed?" >&2
+  exit 1
+fi
+
+missing=0 modified=0 ok=0 fixed=0
+for lproj in "$RESOURCES"/*.lproj; do
+  name="$(basename "$lproj")"
+  for src in "$lproj"/*; do
+    rel="$name/$(basename "$src")"
+    dst="$TARGET/$rel"
+    if [[ ! -f "$dst" ]]; then
+      status="MISSING"; ((missing += 1))
+    elif ! cmp -s "$src" "$dst"; then
+      status="MODIFIED"; ((modified += 1))
+    else
+      status="OK"; ((ok += 1))
+    fi
+    printf '%-9s %s\n' "$status" "$rel"
+
+    if [[ "$MODE" == "fix" && "$status" != "OK" ]]; then
+      if [[ -w "$TARGET" ]]; then
+        mkdir -p "$TARGET/$name"
+        cp "$src" "$dst"
+      else
+        sudo mkdir -p "$TARGET/$name"
+        sudo cp "$src" "$dst"
+      fi
+      ((fixed += 1))
+    fi
+  done
+done
+
+echo
+if [[ "$MODE" == "check" ]]; then
+  echo "check: $ok ok, $missing missing, $modified modified"
+  [[ $((missing + modified)) -gt 0 ]] && { echo "run 'as-langfix' to restore them"; exit 1; }
+else
+  if [[ $fixed -gt 0 ]]; then
+    echo "restored $fixed file(s) into $TARGET — retry the update in Android Studio"
+  else
+    echo "nothing to do — all language files are in place"
+  fi
+fi
