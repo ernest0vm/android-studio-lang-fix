@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: bash -n bin/as-langfix
+
+      - name: Lint
+        run: shellcheck --severity=warning bin/as-langfix
+
+      # A contributed snapshot is only useful if it actually carries the
+      # language files; an empty directory would look like coverage and
+      # silently restore nothing.
+      - name: Snapshots are well formed
+        run: |
+          fail=0
+          for dir in resources/builds/AI-*/; do
+            [ -d "$dir" ] || continue
+            if ! find "$dir" -type f -path '*.lproj/*' | grep -q .; then
+              echo "::error::$(basename "$dir") contains no .lproj files"
+              fail=1
+            fi
+          done
+          exit $fail
