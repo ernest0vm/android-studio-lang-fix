@@ -260,6 +260,18 @@ then run `as-langfix --import`. Confirm the state with:
 codesign --verify --verbose=2 "/Applications/Android Studio.app"
 ```
 
+## Branch protection
+
+`main` is protected: force pushes, history rewrites, and branch deletion are
+refused, for administrators too. Ordinary pushes still work, so the release
+steps above are unaffected. Release tags matching `v*` are covered by a
+ruleset that blocks deletion and non-fast-forward updates, since a moved or
+deleted tag breaks `brew install` for everyone.
+
+Write access is limited to the repository owner. Contributions come in as pull
+requests from forks, and CI checks the script and any contributed snapshot on
+every push and pull request.
+
 ## Releasing
 
 The formula pins a release tarball by hash, so the tag has to exist before the
