@@ -13,6 +13,7 @@ set -euo pipefail
 APP="/Applications/Android Studio.app"
 MODE="fix"
 IMPORT_FROM=""
+EXPORT_TO=""
 
 AGENT_LABEL="com.github.ernest0vm.as-langfix.import"
 AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
@@ -27,11 +28,15 @@ Usage:
   as-langfix --list           List stored snapshots
   as-langfix --auto           Snapshot automatically after every update
   as-langfix --auto off       Stop snapshotting automatically
+  as-langfix --export DIR     Copy your snapshots out, to commit or share
   as-langfix --app PATH       Target a different app bundle
   as-langfix --help
 
 Every Android Studio build stamps its build number into these files, so each
 version needs its own snapshot. Run --auto once and that happens on its own.
+
+Snapshots shipped with the tool are used as a fallback when you have none of
+your own for the installed build.
 EOF
 }
 
@@ -43,6 +48,10 @@ while [[ $# -gt 0 ]]; do
     --auto)
       MODE="auto"; shift
       if [[ "${1:-}" == "off" ]]; then AUTO_OFF=1; shift; fi
+      ;;
+    --export)
+      MODE="export"; shift
+      EXPORT_TO="${1:-}"; [[ -n "$EXPORT_TO" ]] && shift
       ;;
     --import)
       MODE="import"; shift
@@ -63,6 +72,39 @@ while [[ -L "$SOURCE" ]]; do
   [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# Snapshots that ship with the tool. Safe to trust blindly: a file is only
+# written when its hash matches the seal of the install in front of us, so a
+# wrong or tampered snapshot is rejected rather than applied.
+BUNDLED=""
+for candidate in \
+  "$SCRIPT_DIR/../share/as-langfix/resources/builds" \
+  "$SCRIPT_DIR/../resources/builds"; do
+  if [[ -d "$candidate" ]]; then BUNDLED="$(cd "$candidate" && pwd)"; break; fi
+done
+
+if [[ "$MODE" == "export" ]]; then
+  if [[ -z "$EXPORT_TO" ]]; then
+    echo "error: --export needs a destination directory" >&2
+    exit 2
+  fi
+  if [[ ! -d "$STORE" ]]; then
+    echo "no snapshots to export" >&2
+    exit 1
+  fi
+  mkdir -p "$EXPORT_TO"
+  n=0
+  for dir in "$STORE"/*; do
+    [[ -d "$dir" ]] || continue
+    cp -R "$dir" "$EXPORT_TO/"
+    echo "exported $(basename "$dir")"
+    n=$((n + 1))
+  done
+  [[ $n -gt 0 ]] || { echo "no snapshots to export" >&2; exit 1; }
+  echo
+  echo "$n snapshot(s) copied to $EXPORT_TO"
+  exit 0
+fi
 
 if [[ "$MODE" == "auto" ]]; then
   if [[ $AUTO_OFF -eq 1 ]]; then
@@ -103,10 +145,12 @@ fi
 
 if [[ "$MODE" == "list" ]]; then
   found=0
-  for dir in "$STORE"/*; do
+  for dir in "$STORE"/* ${BUNDLED:+"$BUNDLED"/*}; do
     [[ -d "$dir" ]] || continue
+    origin="yours"
+    [[ -n "$BUNDLED" && "$dir" == "$BUNDLED"/* ]] && origin="bundled"
     n=$(find "$dir" -type f | wc -l | tr -d ' ')
-    printf '%-40s %s file(s)\n' "$(basename "$dir")" "$n"
+    printf '%-40s %-8s %s file(s)\n' "$(basename "$dir")" "$origin" "$n"
     found=1
   done
   [[ $found -eq 1 ]] || echo "no snapshots yet — run 'as-langfix --import' on a healthy install"
@@ -217,6 +261,9 @@ if [[ "$MODE" == "import" ]]; then
 fi
 
 SNAPSHOT="$STORE/$BUILD"
+if [[ ! -d "$SNAPSHOT" && -n "$BUNDLED" && -d "$BUNDLED/$BUILD" ]]; then
+  SNAPSHOT="$BUNDLED/$BUILD"
+fi
 
 missing=0; modified=0; ok=0; unrestorable=0
 declare -a WRITTEN=()

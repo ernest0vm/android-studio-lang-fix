@@ -142,6 +142,25 @@ Snapshots live in `~/.local/share/as-langfix/builds/<build>/`. Importing is
 refused if the install is already missing files, so a snapshot is never a
 partial one that only looks like protection.
 
+### Snapshots shipped with the tool
+
+A few builds are captured in this repository under
+[`resources/builds/`](resources/builds), and `as-langfix` falls back to them
+when you have no snapshot of your own for the installed build — which is the
+one case the tool otherwise cannot help with.
+
+Trusting them costs nothing: a file is copied only when its SHA-256 already
+matches the seal of *your* install, so a snapshot that is wrong or tampered
+with is refused rather than applied. Try it — alter one and run `as-langfix`;
+it reports `(no matching snapshot)` and writes nothing.
+
+To contribute the build you are running:
+
+```bash
+as-langfix --import
+as-langfix --export /path/to/repo/resources/builds
+```
+
 ## The real fix: stop the deletion
 
 This tool repairs the damage; it does not prevent it.
