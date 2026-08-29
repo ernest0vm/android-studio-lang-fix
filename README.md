@@ -1,13 +1,49 @@
 # android-studio-lang-fix
 
 Restores the language files (`ja.lproj`, `ko.lproj`, `zh-Hans.lproj`,
-`zh-Hant.lproj`) that cleanup tools — notably **CleanMyMac X's "Language
-Files" cleanup** — delete from `Android Studio.app`. Without them, JetBrains
-patch updates abort with conflicts like:
+`zh-Hant.lproj`) that cleanup tools delete from `Android Studio.app`. Without
+them, JetBrains patch updates abort with:
 
 ```
+Some conflicts were found in the installation area.
+Some conflicts below do not have a solution, so the patch cannot be applied.
+
 Contents/Resources/ja.lproj/InfoPlist.strings   Update   Absent   -
 ```
+
+## Where the deletion comes from
+
+**CleanMyMac X's Smart Scan.** Not a language cleanup you went looking for —
+the one-click scan removes unused `.lproj` folders as part of System Junk,
+which is why it recurs silently and across every Mac you run it on.
+
+It is recorded in CleanMyMac's own log. On an affected machine:
+
+```bash
+grep -h 'remove file.*lproj' ~/Library/Logs/com.macpaw.CleanMyMac4/*.log | grep -i 'Android Studio'
+```
+
+```
+[Smart Scan]: [remove file] removed at path: /Applications/Android Studio.app/Contents/Resources/ja.lproj
+[Smart Scan]: [remove file] removed at path: /Applications/Android Studio.app/Contents/Resources/zh-Hans.lproj
+[Smart Scan]: [remove file] removed at path: /Applications/Android Studio.app/Contents/Resources/zh-Hant.lproj
+[Smart Scan]: [remove file] removed at path: /Applications/Android Studio.app/Contents/Resources/ko.lproj
+```
+
+Only non-English locales go; `en.lproj` — the system language — is kept. Drop
+the `grep -i 'Android Studio'` and you will typically see thousands of
+removals across every app on the disk.
+
+**Yet Android Studio is the only one that breaks**, for two reasons:
+
+- Deleting these files does not invalidate an app's code signature (see
+  below), so nothing else notices.
+- Most apps update by replacing the whole bundle. JetBrains IDEs update by
+  applying a *patch*, and the patcher refuses to run unless every file it
+  intends to touch is present and byte-for-byte what it expects.
+
+So there is no need to stop cleaning language files in general. Excluding the
+JetBrains IDEs is enough — see [The real fix](#the-real-fix-stop-the-deletion).
 
 ## How it works, and why it works this way
 
@@ -69,11 +105,18 @@ update — otherwise there is nothing to restore from the next time.
 
 ## The real fix: stop the deletion
 
-This tool repairs the damage; it does not prevent it. Tell your cleanup tool to
-leave language files alone:
+This tool repairs the damage; it does not prevent it.
 
-**CleanMyMac X** → Settings → Ignore List → System Junk → enable **Language
-files** (or add Android Studio to the ignore list).
+You do not have to give up cleaning language files everywhere — the deletion is
+harmless for every app that does not use a patch-based updater. Exclude just
+the IDEs:
+
+**CleanMyMac X** → Settings → Ignore List → System Junk → add
+`Android Studio.app`, plus any other JetBrains IDE you have installed
+(IntelliJ IDEA, WebStorm, PyCharm, GoLand, Rider…). They all ship the same
+patch updater and fail the same way.
+
+Do this on every Mac you run the cleaner on — the setting is per-machine.
 
 ## Troubleshooting
 
@@ -87,6 +130,32 @@ modifying another app's bundle — even with `sudo`. Grant the permission once:
    not listed
 3. Fully quit the terminal (**Cmd+Q**), reopen it, and run `as-langfix` again —
    no `sudo` needed
+
+### The update dialog says `Modified` instead of `Absent`
+
+```
+Contents/Resources/ja.lproj/InfoPlist.strings   Update   Modified   -
+```
+
+The files are present, but their contents are not what this build shipped —
+someone restored them from a different version. This is worse than `Absent`:
+the patch still refuses, *and* the app's code signature is now invalid.
+
+There is no local recovery. The original bytes exist only in the installer for
+your exact build, and a JetBrains patch file contains only the new bytes, not
+the old ones. Download the current version from
+[developer.android.com/studio](https://developer.android.com/studio) and
+install it from scratch — which is what the dialog itself recommends — then
+immediately run:
+
+```bash
+as-langfix --import
+```
+
+Versions before v2.0.0 of this tool caused exactly this by shipping one static
+copy of the files and writing it into any install. v2 restores only bytes that
+match your installed build, and rolls back rather than leaving the app in this
+state.
 
 ### "no snapshot for build ..."
 
