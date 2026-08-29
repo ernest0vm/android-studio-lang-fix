@@ -161,6 +161,15 @@ as-langfix --import
 as-langfix --export /path/to/repo/resources/builds
 ```
 
+Or skip the copy entirely and snapshot straight into a checkout, leaving
+nothing in your home directory:
+
+```bash
+as-langfix --store /path/to/repo/resources/builds --import
+```
+
+Export `AS_LANGFIX_STORE` in your shell profile to make that the default.
+
 ## The real fix: stop the deletion
 
 This tool repairs the damage; it does not prevent it.

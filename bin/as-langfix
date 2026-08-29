@@ -14,6 +14,7 @@ APP="/Applications/Android Studio.app"
 MODE="fix"
 IMPORT_FROM=""
 EXPORT_TO=""
+STORE_OVERRIDE=""
 
 AGENT_LABEL="com.github.ernest0vm.as-langfix.import"
 AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
@@ -29,14 +30,16 @@ Usage:
   as-langfix --auto           Snapshot automatically after every update
   as-langfix --auto off       Stop snapshotting automatically
   as-langfix --export DIR     Copy your snapshots out, to commit or share
+  as-langfix --store DIR      Keep snapshots here instead of the default
   as-langfix --app PATH       Target a different app bundle
   as-langfix --help
 
 Every Android Studio build stamps its build number into these files, so each
 version needs its own snapshot. Run --auto once and that happens on its own.
 
-Snapshots shipped with the tool are used as a fallback when you have none of
-your own for the installed build.
+Snapshots live in ~/.local/share/as-langfix/builds by default. Set --store, or
+AS_LANGFIX_STORE, to keep them in a git checkout instead. Snapshots shipped
+with the tool are the fallback when you have none of your own for the build.
 EOF
 }
 
@@ -58,12 +61,16 @@ while [[ $# -gt 0 ]]; do
       if [[ $# -gt 0 && "$1" != --* ]]; then IMPORT_FROM="$1"; shift; fi
       ;;
     --app) APP="$2"; shift 2 ;;
+    --store) STORE_OVERRIDE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-STORE="${XDG_DATA_HOME:-$HOME/.local/share}/as-langfix/builds"
+# Keeping snapshots straight in a git checkout is a first-class choice, not a
+# workaround: point --store (or AS_LANGFIX_STORE) at it and imports land there,
+# with nothing left behind in the home directory.
+STORE="${STORE_OVERRIDE:-${AS_LANGFIX_STORE:-${XDG_DATA_HOME:-$HOME/.local/share}/as-langfix/builds}}"
 
 SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$SOURCE" ]]; do
@@ -82,6 +89,12 @@ for candidate in \
   "$SCRIPT_DIR/../resources/builds"; do
   if [[ -d "$candidate" ]]; then BUNDLED="$(cd "$candidate" && pwd)"; break; fi
 done
+
+# Pointing --store at the checkout the tool is running from makes the two the
+# same directory; treat it as the store alone so it is not listed twice.
+if [[ -d "$STORE" && -n "$BUNDLED" && "$(cd "$STORE" && pwd)" == "$BUNDLED" ]]; then
+  BUNDLED=""
+fi
 
 if [[ "$MODE" == "export" ]]; then
   if [[ -z "$EXPORT_TO" ]]; then
