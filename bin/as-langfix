@@ -29,7 +29,7 @@ Usage:
   as-langfix --list           List stored snapshots
   as-langfix --auto           Snapshot automatically after every update
   as-langfix --auto off       Stop snapshotting automatically
-  as-langfix --export DIR     Copy your snapshots out, to commit or share
+  as-langfix --export DIR     Move your snapshots there, to commit or share
   as-langfix --store DIR      Keep snapshots here instead of the default
   as-langfix --app PATH       Target a different app bundle
   as-langfix --help
@@ -106,16 +106,51 @@ if [[ "$MODE" == "export" ]]; then
     exit 1
   fi
   mkdir -p "$EXPORT_TO"
-  n=0
+  dest_abs="$(cd "$EXPORT_TO" && pwd)"
+  store_abs="$(cd "$STORE" && pwd)"
+  if [[ "$dest_abs" == "$store_abs" ]]; then
+    echo "snapshots are already kept in $dest_abs — nothing to export"
+    exit 0
+  fi
+
+  n=0; kept=0
   for dir in "$STORE"/*; do
     [[ -d "$dir" ]] || continue
-    cp -R "$dir" "$EXPORT_TO/"
-    echo "exported $(basename "$dir")"
+    name="$(basename "$dir")"
+    target="$dest_abs/$name"
+
+    # A build already in the destination is replaced, not nested inside itself.
+    if [[ -d "$target" ]] && diff -rq "$dir" "$target" >/dev/null 2>&1; then
+      state="unchanged"
+    elif [[ -d "$target" ]]; then
+      rm -rf "$target"; cp -R "$dir" "$target"; state="updated"
+    else
+      cp -R "$dir" "$target"; state="exported"
+    fi
+
+    # Export moves rather than copies, so the local store does not grow a
+    # second copy of what is now archived — but only once the destination
+    # provably matches.
+    if diff -rq "$dir" "$target" >/dev/null 2>&1; then
+      rm -rf "$dir"
+    else
+      state="FAILED"; kept=$((kept + 1))
+    fi
+    printf '%-10s %s\n' "$state" "$name"
     n=$((n + 1))
   done
+
   [[ $n -gt 0 ]] || { echo "no snapshots to export" >&2; exit 1; }
+
+  rmdir "$STORE" 2>/dev/null || true
+  rmdir "$(dirname "$STORE")" 2>/dev/null || true
+
   echo
-  echo "$n snapshot(s) copied to $EXPORT_TO"
+  if [[ $kept -gt 0 ]]; then
+    echo "$kept snapshot(s) did not copy cleanly and were left in $store_abs" >&2
+    exit 1
+  fi
+  echo "$n snapshot(s) now in $dest_abs; local store cleared"
   exit 0
 fi
 

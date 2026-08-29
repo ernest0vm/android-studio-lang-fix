@@ -30,6 +30,11 @@ as-langfix --import
 as-langfix --export /path/to/this/repo/resources/builds
 ```
 
+`--export` moves the snapshot here and clears it from your own store, and
+replaces a build already present rather than duplicating it. To snapshot
+straight into the checkout instead, use
+`as-langfix --store /path/to/this/repo/resources/builds --import`.
+
 Then open a pull request. Only import from an install whose signature is
 valid — `--import` enforces this and refuses otherwise, so a snapshot in a PR
 is verifiable by construction.

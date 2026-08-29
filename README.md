@@ -161,7 +161,12 @@ as-langfix --import
 as-langfix --export /path/to/repo/resources/builds
 ```
 
-Or skip the copy entirely and snapshot straight into a checkout, leaving
+`--export` moves rather than copies: once a snapshot is safely in the
+destination it is removed from your store, so the same build never exists in
+two places. Re-exporting a build already there replaces it instead of
+duplicating it, and says whether it was `unchanged` or `updated`.
+
+Or skip the two steps entirely and snapshot straight into a checkout, leaving
 nothing in your home directory:
 
 ```bash
