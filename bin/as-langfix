@@ -95,7 +95,10 @@ done
 echo
 if [[ "$MODE" == "check" ]]; then
   echo "check: $ok ok, $missing missing, $modified modified"
-  [[ $((missing + modified)) -gt 0 ]] && { echo "run 'as-langfix' to restore them"; exit 1; }
+  if [[ $((missing + modified)) -gt 0 ]]; then
+    echo "run 'as-langfix' to restore them"
+    exit 1
+  fi
 else
   if [[ $fixed -gt 0 ]]; then
     echo "restored $fixed file(s) into $TARGET — retry the update in Android Studio"
