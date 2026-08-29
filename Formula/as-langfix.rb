@@ -1,8 +1,8 @@
 class AsLangfix < Formula
   desc "Restore Asian .lproj files deleted from Android Studio so patch updates work"
   homepage "https://github.com/ernest0vm/android-studio-lang-fix"
-  url "https://github.com/ernest0vm/android-studio-lang-fix/archive/refs/tags/v1.0.1.tar.gz"
-  sha256 "8041e518dfc248c1348644212bebaad2647a37096faf01acc967c8e6ad0d99f0"
+  url "https://github.com/ernest0vm/android-studio-lang-fix/archive/refs/tags/v1.0.2.tar.gz"
+  sha256 "e8f7bc8835ff220f08a6b87fa04fe1465ab42738bd6dc3a77397ab502a6cd3de"
   license "MIT"
   head "https://github.com/ernest0vm/android-studio-lang-fix.git", branch: "main"
 
