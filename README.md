@@ -58,10 +58,37 @@ understanding:
   repair is a full reinstall.
 
 So the files cannot be restored from a generic copy: only the exact bytes
-shipped with *your installed build* will re-seal the bundle. That is why this
-tool restores from a snapshot of your own healthy install, keyed by build
-number, and verifies the signature afterwards — rolling the change back if it
-would leave the app unlaunchable.
+shipped with *your installed build* will re-seal the bundle.
+
+And every build really is different, because each file stamps the build number
+into its own first line:
+
+```bash
+grep -o 'AI-[0-9.]*' "/Applications/Android Studio.app/Contents/Resources/en.lproj/InfoPlist.strings"
+```
+
+That is why a snapshot is per-version, and why no shared archive of these files
+can exist. It also gives you a quick way to spot a bad restore: if the
+non-English files report a different build than `en.lproj`, they came from
+another version.
+
+The signature seal records the expected SHA-256 of every one of these files, so
+this tool reads the seal, and **writes a file only when its hash already
+matches what the seal demands**. Wrong bytes are never written in the first
+place.
+
+### The JetBrains language pack plugins do not help
+
+The Japanese/Korean/Chinese *Language Pack* plugins on the JetBrains
+Marketplace localize the IDE's own interface — menus, settings, inspections —
+and load at runtime from the plugins directory.
+
+These `.lproj` files are macOS bundle resources, read by macOS rather than by
+the IDE. They hold the strings the system shows in permission prompts
+(`NSCameraUsageDescription`, `NSMicrophoneUsageDescription`, …) and in Finder's
+Get Info panel. Different layer, different format, and build-stamped and
+signature-sealed besides. No plugin or third-party copy can substitute for
+them.
 
 ## Install
 
@@ -75,14 +102,26 @@ brew install as-langfix
 
 ## Usage
 
-**Right after installing or updating Android Studio**, while the app is still
-intact, take a snapshot:
+Since every build needs its own snapshot, let the tool take them for you. Run
+this once, on a healthy install:
+
+```bash
+as-langfix --auto
+```
+
+It installs a LaunchAgent that snapshots at login and every six hours, so each
+new build is captured shortly after you update — long before a cleanup runs.
+Snapshots are skipped when one already exists, so it is a no-op almost always.
+Turn it off with `as-langfix --auto off`.
+
+Prefer to do it by hand? Then run this **right after installing or updating
+Android Studio**, while the app is still intact:
 
 ```bash
 as-langfix --import
 ```
 
-Later, once a cleanup tool has deleted the files and an update refuses to
+Either way, once a cleanup tool has deleted the files and an update refuses to
 apply, restore them:
 
 ```bash
@@ -95,13 +134,13 @@ Other commands:
 
 ```bash
 as-langfix --check    # report status and signature validity; change nothing
-as-langfix --list     # list available snapshots
+as-langfix --list     # list stored snapshots
 as-langfix --app "/Applications/Android Studio Preview.app"   # other bundle
 ```
 
-Snapshots live in `~/.local/share/as-langfix/builds/<build>/`. Each Android
-Studio update produces a new build number, so re-run `--import` after every
-update — otherwise there is nothing to restore from the next time.
+Snapshots live in `~/.local/share/as-langfix/builds/<build>/`. Importing is
+refused if the install is already missing files, so a snapshot is never a
+partial one that only looks like protection.
 
 ## The real fix: stop the deletion
 
@@ -149,13 +188,13 @@ install it from scratch — which is what the dialog itself recommends — then
 immediately run:
 
 ```bash
-as-langfix --import
+as-langfix --auto
 ```
 
 Versions before v2.0.0 of this tool caused exactly this by shipping one static
-copy of the files and writing it into any install. v2 restores only bytes that
-match your installed build, and rolls back rather than leaving the app in this
-state.
+copy of the files and writing it into any install. Since v2 every byte is
+checked against the signature seal before it is written, so a mismatched file
+is refused rather than installed.
 
 ### "no snapshot for build ..."
 
