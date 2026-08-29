@@ -234,13 +234,48 @@ codesign --verify --verbose=2 "/Applications/Android Studio.app"
 
 ## Releasing
 
-1. Push and tag, e.g. `v2.0.0`.
-2. Compute the tarball hash:
+The formula pins a release tarball by hash, so the tag has to exist before the
+formula can point at it. That makes it two commits: the change, then the bump.
+
+```bash
+VERSION=2.3.0
+```
+
+1. Commit and push the change itself.
+
+2. Cut the release — this creates the tag:
+
    ```bash
-   curl -sL https://github.com/ernest0vm/android-studio-lang-fix/archive/refs/tags/v2.0.0.tar.gz | shasum -a 256
+   gh release create "v$VERSION" --title "v$VERSION" --notes "..."
    ```
-3. Put that hash and the new URL in `Formula/as-langfix.rb`.
+
+3. Hash the tarball GitHub generated for that tag:
+
+   ```bash
+   curl -sL "https://github.com/ernest0vm/android-studio-lang-fix/archive/refs/tags/v$VERSION.tar.gz" | shasum -a 256
+   ```
+
+4. Put the new `url` and `sha256` in `Formula/as-langfix.rb`, then commit and
+   push that as its own change.
+
+Installs pick it up with:
+
+```bash
+brew update && brew upgrade as-langfix
+```
+
+Verify against a real install before releasing — `bash -n bin/as-langfix`
+catches only syntax. The paths worth exercising are a restore that succeeds, a
+snapshot that does not match the build (must refuse and write nothing), and an
+import from an install that is already missing files (must refuse). An ad-hoc
+signed throwaway `.app` with a `build.txt` and a couple of `.lproj` folders is
+enough to drive all three.
 
 ## License
 
-MIT
+The tool is MIT — see [LICENSE](LICENSE).
+
+The snapshots under [`resources/builds/`](resources/builds) are not covered by
+it: they are verbatim Android Studio resources, © Google LLC and JetBrains
+s.r.o., included so a damaged install can be repaired with its own original
+bytes. See [resources/builds/README.md](resources/builds/README.md).
