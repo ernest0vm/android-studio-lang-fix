@@ -38,6 +38,15 @@ as-langfix --app "/Applications/Android Studio Preview.app"   # other bundle
 
 Run it, then retry the update from Android Studio.
 
+## Troubleshooting: "Operation not permitted"
+
+On macOS Ventura and later, the **App Management** privacy protection blocks
+modifying another app's bundle — even with `sudo`. Grant the permission once:
+
+1. Open **System Settings → Privacy & Security → App Management**
+2. Enable your terminal app (Terminal, iTerm, etc.)
+3. Restart the terminal and run `as-langfix` again (no `sudo` needed)
+
 ## Keeping the bundled files up to date
 
 After a successful update, run `as-langfix --check`. If it reports `MODIFIED`,

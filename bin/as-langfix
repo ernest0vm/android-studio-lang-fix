@@ -74,12 +74,18 @@ for lproj in "$RESOURCES"/*.lproj; do
     printf '%-9s %s\n' "$status" "$rel"
 
     if [[ "$MODE" == "fix" && "$status" != "OK" ]]; then
-      if [[ -w "$TARGET" ]]; then
-        mkdir -p "$TARGET/$name"
-        cp "$src" "$dst"
-      else
-        sudo mkdir -p "$TARGET/$name"
-        sudo cp "$src" "$dst"
+      if ! { mkdir -p "$TARGET/$name" && cp "$src" "$dst"; } 2>/dev/null; then
+        cat >&2 <<'EOF'
+
+error: macOS blocked writing into the app bundle ("Operation not permitted").
+This is the App Management privacy protection, and sudo does NOT bypass it.
+
+Fix it once:
+  1. Open System Settings > Privacy & Security > App Management
+  2. Enable your terminal app (Terminal, iTerm, etc.)
+  3. Restart the terminal and run 'as-langfix' again (no sudo needed)
+EOF
+        exit 1
       fi
       ((fixed += 1))
     fi
