@@ -60,17 +60,30 @@ understanding:
 So the files cannot be restored from a generic copy: only the exact bytes
 shipped with *your installed build* will re-seal the bundle.
 
-And every build really is different, because each file stamps the build number
-into its own first line:
+Each file stamps part of the build id into its own first line — the tail stays
+a literal `__BUILD_NUMBER__`:
 
-```bash
-grep -o 'AI-[0-9.]*' "/Applications/Android Studio.app/Contents/Resources/en.lproj/InfoPlist.strings"
+```
+CFBundleGetInfoString = "Android Studio 2026.1, build AI-261.26222.65.__BUILD_NUMBER__. …"
 ```
 
-That is why a snapshot is per-version, and why no shared archive of these files
-can exist. It also gives you a quick way to spot a bad restore: if the
-non-English files report a different build than `en.lproj`, they came from
-another version.
+So the contents change when that prefix changes, but two builds that share it —
+a patch update, typically — ship byte-identical files. `as-langfix` therefore
+matches snapshots **by content, not by build number**: one snapshot keeps
+working across every update that leaves these files alone, and `--import` says
+so instead of storing a second identical copy.
+
+It also gives you a quick way to spot a bad restore. Every locale should report
+the same build:
+
+```bash
+for l in en ja ko zh-Hans zh-Hant; do
+  grep -o 'AI-[0-9.]*' "/Applications/Android Studio.app/Contents/Resources/$l.lproj/InfoPlist.strings"
+done
+```
+
+If the non-English files disagree with `en.lproj`, they came from another
+version.
 
 The signature seal records the expected SHA-256 of every one of these files, so
 this tool reads the seal, and **writes a file only when its hash already
@@ -102,8 +115,9 @@ brew install as-langfix
 
 ## Usage
 
-Since every build needs its own snapshot, let the tool take them for you. Run
-this once, on a healthy install:
+A snapshot covers every build that ships the same files, so you need a new one
+only when an update actually changes them. To not have to think about it at
+all, run this once on a healthy install:
 
 ```bash
 as-langfix --auto
