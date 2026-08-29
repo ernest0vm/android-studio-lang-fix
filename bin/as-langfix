@@ -1,34 +1,54 @@
 #!/usr/bin/env bash
 #
-# as-langfix — restores the Asian .lproj language files that cleanup tools
+# as-langfix — restores the .lproj language files that cleanup tools
 # (e.g. CleanMyMac's "Language Files" cleanup) delete from Android Studio,
 # which breaks JetBrains patch updates with "Absent" conflicts.
 #
-# Usage:
-#   as-langfix            # restore missing/modified language files
-#   as-langfix --check    # report status without changing anything
-#   as-langfix --app PATH # target a different app bundle
-#   as-langfix --help
+# Language files are part of the app's signed code seal, so ONLY the exact
+# bytes shipped with your installed build can be restored: anything else
+# invalidates the signature and macOS refuses to launch the app. This tool
+# therefore restores from a snapshot you take of your own healthy install,
+# keyed by build number, and verifies the seal afterwards.
 set -euo pipefail
 
 APP="/Applications/Android Studio.app"
 MODE="fix"
+IMPORT_FROM=""
 
 usage() {
-  sed -n '3,11p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+Usage:
+  as-langfix                 Restore missing/modified language files
+  as-langfix --check         Report status; change nothing
+  as-langfix --import [APP]  Snapshot a healthy install for later restores
+  as-langfix --list          List available snapshots
+  as-langfix --app PATH      Target a different app bundle
+  as-langfix --help
+
+Take a snapshot with --import right after installing or updating Android
+Studio, while the app is still intact. That snapshot is what a later restore
+copies back, byte for byte.
+EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) MODE="check"; shift ;;
+    --list) MODE="list"; shift ;;
+    --import)
+      MODE="import"; shift
+      if [[ $# -gt 0 && "$1" != --* ]]; then IMPORT_FROM="$1"; shift; fi
+      ;;
     --app) APP="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-# Resolve the script's real location so resources are found both when run
-# from the repo (./resources) and when installed by Homebrew (../share).
+STORE="${XDG_DATA_HOME:-$HOME/.local/share}/as-langfix/builds"
+
+# Resolve the script's real location so bundled snapshots are found both when
+# run from the repo (./resources) and when installed by Homebrew (../share).
 SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$SOURCE" ]]; do
   DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
@@ -37,20 +57,30 @@ while [[ -L "$SOURCE" ]]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 
-RESOURCES=""
+BUNDLED=""
 for candidate in \
-  "$SCRIPT_DIR/../share/as-langfix/resources" \
-  "$SCRIPT_DIR/../resources"; do
+  "$SCRIPT_DIR/../share/as-langfix/resources/builds" \
+  "$SCRIPT_DIR/../resources/builds"; do
   if [[ -d "$candidate" ]]; then
-    RESOURCES="$(cd "$candidate" && pwd)"
+    BUNDLED="$(cd "$candidate" && pwd)"
     break
   fi
 done
 
-if [[ -z "$RESOURCES" ]]; then
-  echo "error: bundled language resources not found next to the script" >&2
-  exit 1
+if [[ "$MODE" == "list" ]]; then
+  found=0
+  for dir in "$STORE"/* "${BUNDLED:-/nonexistent}"/*; do
+    [[ -d "$dir" ]] || continue
+    origin="user"
+    [[ -n "$BUNDLED" && "$dir" == "$BUNDLED"/* ]] && origin="bundled"
+    printf '%-40s %s\n' "$(basename "$dir")" "$origin"
+    found=1
+  done
+  [[ $found -eq 1 ]] || echo "no snapshots yet — run 'as-langfix --import' on a healthy install"
+  exit 0
 fi
+
+[[ -n "$IMPORT_FROM" ]] && APP="$IMPORT_FROM"
 
 TARGET="$APP/Contents/Resources"
 if [[ ! -d "$TARGET" ]]; then
@@ -58,24 +88,90 @@ if [[ ! -d "$TARGET" ]]; then
   exit 1
 fi
 
-missing=0 modified=0 ok=0 fixed=0
-for lproj in "$RESOURCES"/*.lproj; do
+BUILD="$(tr -d '[:space:]' < "$TARGET/build.txt" 2>/dev/null || true)"
+if [[ -z "$BUILD" ]]; then
+  echo "error: cannot read the build number from $TARGET/build.txt" >&2
+  exit 1
+fi
+
+# --verbose prints reassurance ("valid on disk") on success too, so the exit
+# status — not the output — is what decides whether the seal holds.
+seal_ok() {
+  codesign --verify "$APP" >/dev/null 2>&1
+}
+seal_report() {
+  codesign --verify --verbose=2 "$APP" 2>&1 || true
+}
+
+if [[ "$MODE" == "import" ]]; then
+  if ! seal_ok; then
+    echo "refusing to snapshot $BUILD — the app's signature is already broken:" >&2
+    seal_report | sed 's/^/  /' >&2
+    echo >&2
+    echo "Reinstall Android Studio from the official installer, then import again." >&2
+    exit 1
+  fi
+  dest="$STORE/$BUILD"
+  mkdir -p "$dest"
+  count=0
+  for lproj in "$TARGET"/*.lproj; do
+    [[ -d "$lproj" ]] || continue
+    name="$(basename "$lproj")"
+    mkdir -p "$dest/$name"
+    cp -p "$lproj"/* "$dest/$name/" 2>/dev/null || true
+    count=$((count + 1))
+  done
+  echo "snapshot saved: $dest ($count language folders, signature verified)"
+  exit 0
+fi
+
+# Locate a snapshot matching this exact build.
+SNAPSHOT=""
+for base in "$STORE" ${BUNDLED:+"$BUNDLED"}; do
+  if [[ -d "$base/$BUILD" ]]; then SNAPSHOT="$base/$BUILD"; break; fi
+done
+
+if [[ -z "$SNAPSHOT" ]]; then
+  cat >&2 <<EOF
+error: no snapshot for build $BUILD
+
+Language files are covered by the app's code signature, so restoring files
+from a different build would invalidate it and macOS would refuse to launch
+Android Studio. Only a snapshot of this exact build can be restored.
+
+If the app is still healthy, take one now:
+  as-langfix --import
+
+If the files are already gone, reinstall Android Studio from the official
+installer, then run 'as-langfix --import' right away.
+EOF
+  exit 1
+fi
+
+missing=0; modified=0; ok=0
+declare -a WRITTEN=()
+declare -a MADEDIR=()
+
+for lproj in "$SNAPSHOT"/*.lproj; do
+  [[ -d "$lproj" ]] || continue
   name="$(basename "$lproj")"
   for src in "$lproj"/*; do
+    [[ -f "$src" ]] || continue
     rel="$name/$(basename "$src")"
     dst="$TARGET/$rel"
     if [[ ! -f "$dst" ]]; then
-      status="MISSING"; ((missing += 1))
+      status="MISSING"; missing=$((missing + 1))
     elif ! cmp -s "$src" "$dst"; then
-      status="MODIFIED"; ((modified += 1))
+      status="MODIFIED"; modified=$((modified + 1))
     else
-      status="OK"; ((ok += 1))
+      status="OK"; ok=$((ok + 1))
     fi
     printf '%-9s %s\n' "$status" "$rel"
 
     if [[ "$MODE" == "fix" && "$status" != "OK" ]]; then
-      if ! { mkdir -p "$TARGET/$name" && cp "$src" "$dst"; } 2>/dev/null; then
-        cat >&2 <<'EOF'
+      if [[ ! -d "$TARGET/$name" ]]; then
+        mkdir -p "$TARGET/$name" 2>/dev/null || {
+          cat >&2 <<'EOF'
 
 error: macOS blocked writing into the app bundle ("Operation not permitted").
 This is the App Management privacy protection, and sudo does NOT bypass it.
@@ -83,26 +179,73 @@ This is the App Management privacy protection, and sudo does NOT bypass it.
 Fix it once:
   1. Open System Settings > Privacy & Security > App Management
   2. Enable your terminal app (Terminal, iTerm, etc.)
-  3. Restart the terminal and run 'as-langfix' again (no sudo needed)
+  3. Fully quit the terminal (Cmd+Q), reopen it, and run 'as-langfix' again
 EOF
-        exit 1
+          exit 1
+        }
+        MADEDIR+=("$TARGET/$name")
       fi
-      ((fixed += 1))
+      cp "$src" "$dst"
+      WRITTEN+=("$dst")
     fi
   done
 done
 
 echo
 if [[ "$MODE" == "check" ]]; then
-  echo "check: $ok ok, $missing missing, $modified modified"
+  echo "check: $ok ok, $missing missing, $modified modified (build $BUILD)"
+  if seal_ok; then
+    echo "signature: valid"
+  else
+    echo "signature: INVALID"
+    seal_report | sed 's/^/  /'
+  fi
   if [[ $((missing + modified)) -gt 0 ]]; then
     echo "run 'as-langfix' to restore them"
     exit 1
   fi
+  exit 0
+fi
+
+if [[ ${#WRITTEN[@]} -eq 0 ]]; then
+  echo "nothing to do — all language files are in place"
+  exit 0
+fi
+
+# The restored bytes must re-seal the bundle. If the signature still objects to
+# a file we just wrote, our snapshot is wrong for this build: undo it rather
+# than leaving an app macOS will kill on launch.
+still_bad=0
+report=""
+if ! seal_ok; then
+  report="$(seal_report)"
+  for dst in "${WRITTEN[@]}"; do
+    if printf '%s\n' "$report" | grep -Fq "$dst"; then still_bad=1; fi
+  done
+fi
+
+if [[ $still_bad -eq 1 ]]; then
+  for dst in "${WRITTEN[@]}"; do rm -f "$dst"; done
+  for dir in ${MADEDIR[@]+"${MADEDIR[@]}"}; do rmdir "$dir" 2>/dev/null || true; done
+  cat >&2 <<EOF
+
+error: the restored files do not match what this build was signed with, so the
+app's signature would be invalid and macOS would kill it at launch. The changes
+were rolled back; nothing was left behind.
+
+The snapshot stored for this build does not match it:
+  $BUILD
+
+Reinstall Android Studio from the official installer, then run
+'as-langfix --import' while the app is still intact.
+EOF
+  exit 1
+fi
+
+echo "restored ${#WRITTEN[@]} file(s) into $TARGET"
+if [[ -n "$report" ]]; then
+  echo "note: the signature reports other problems, unrelated to these files:"
+  printf '%s\n' "$report" | sed 's/^/  /'
 else
-  if [[ $fixed -gt 0 ]]; then
-    echo "restored $fixed file(s) into $TARGET — retry the update in Android Studio"
-  else
-    echo "nothing to do — all language files are in place"
-  fi
+  echo "signature verified — retry the update in Android Studio"
 fi
